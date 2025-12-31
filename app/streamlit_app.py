@@ -29,7 +29,8 @@ from workflow_definitions.system_design.functions import (
     critic_review,
     ask_user_next_steps,
     determine_next_state,
-    save_results
+    save_results,
+    summarize
 )
 
 load_dotenv()
@@ -58,7 +59,8 @@ if "app" not in st.session_state:
         "critic_review": critic_review,
         "ask_user_next_steps": ask_user_next_steps,
         "determine_next_state": determine_next_state,
-        "save_results": save_results
+        "save_results": save_results,
+        "summarize": summarize
     }
     workflow_path = "workflow_definitions/system_design/workflow.wirl"
 
@@ -121,13 +123,28 @@ elif st.session_state.workflow_status == "interrupted":
         st.error("Interrupted but no tasks found.")
         st.stop()
     
-    interrupt_value = state.tasks[0].interrupts[0].value
+    # Find task with interrupts
+    interrupt_task = next((t for t in state.tasks if t.interrupts), None)
+    if not interrupt_task:
+        st.error("Interrupted but no interrupt details found.")
+        st.stop()
+    
+    interrupt_value = interrupt_task.interrupts[0].value
     # Value is {"request": json_string}
     request_data = json.loads(interrupt_value.get("request", "{}"))
     
     st.subheader("Input Required")
     
     # Determine type of interrupt
+    
+    # Display Hypotheses History if available
+    if "hypotheses_history" in request_data:
+        history = request_data["hypotheses_history"]
+        if history:
+            st.subheader("Hypotheses History")
+            # Flatten or format for table. It's a list of dicts.
+            st.dataframe(history)
+
     if "questions" in request_data:
         # Verification Questions
         st.subheader("Verification Questions")

@@ -2,6 +2,8 @@ from langchain_core.prompts import ChatPromptTemplate
 
 GENERATE_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
     """You are a Senior Software Engineer acting as a candidate in a System Design Interview.
+    Initial request: "{initial_request}"
+
     The interviewer has asked: "{question}"
 
     History of previous solutions/discussions:
@@ -26,10 +28,16 @@ GENERATE_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
 )
 
 VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
-    """You are a Senior Software Engineer acting as a candidate.
+    """You are a Senior Software Engineer acting as a candidate on a System Design Interview.
     
+    History of previous solutions/discussions:
+    {history}
+
     Hypotheses you generated:
     {hypotheses}
+    
+    Verification Questions you asked:
+    {questions}
     
     Interviewer's Answers to Verification Questions:
     {answers}
@@ -38,7 +46,7 @@ VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
     
     If neither hypothesis is valid based on the answers (e.g., scale is too low), return "is_valid": false.
     If one or both are valid, choose the most interesting/challenging one as "best_hypothesis" and return "is_valid": true.
-    Also provide a brief "solution_draft" or direction (e.g., "I will focus on Search Latency using a Geohash approach").
+    Also provide a very brief "solution_draft" or direction (e.g., "I will focus on Search Latency using a Geohash approach").
     
     Output a JSON object with the following structure:
     {{
@@ -53,7 +61,16 @@ VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
 GENERATE_SOLUTION_PROMPT = ChatPromptTemplate.from_template(
     """You are a Senior Software Engineer acting as a candidate.
     
+    History of previous solutions/discussions:
+    {history}
+
     Confirmed Challenge: {hypothesis}
+
+    Verification Questions you asked:
+    {questions}
+    
+    Interviewer's Answers to Verification Questions:
+    {answers}
     Initial Direction: {draft}
     
     Objective: Solve this specific challenge fully using scientific modeling.
@@ -84,6 +101,17 @@ GENERATE_SOLUTION_PROMPT = ChatPromptTemplate.from_template(
 
 CRITIC_REVIEW_PROMPT = ChatPromptTemplate.from_template(
     """You are a Senior Principal Engineer reviewing a design proposed by a candidate.
+    
+    History of previous solutions/discussions:
+    {history}
+
+    Confirmed Current Challenge: {hypothesis}
+    
+    Verification Questions you asked:
+    {questions}
+    
+    Interviewer's Answers to Verification Questions:
+    {answers}
     
     Candidate's Solution:
     {solution}

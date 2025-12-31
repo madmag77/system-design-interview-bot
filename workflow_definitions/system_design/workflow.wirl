@@ -10,17 +10,19 @@ workflow SystemDesignInterview {
   cycle InterviewLoop {
     inputs {
       String initial_q = initial_question
+      List<Record> hypotheses_history = Summarizer.hypotheses_history?
+      String current_question = DetermineNextState.next_question?
     }
     outputs {
-      List<String> history = CriticReview.final_solution
+      List<Record> history = Summarizer.hypotheses_history
     }
 
     node GenerateHypotheses {
       call generate_hypotheses
       inputs {
-        String current_question = InterviewLoop.current_question?
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
         String initial = InterviewLoop.initial_q
-        List<String> history = CriticReview.final_solution?
+        String current_question = InterviewLoop.current_question?
       }
       const {
         model: "gpt-oss:20b"
@@ -38,6 +40,7 @@ workflow SystemDesignInterview {
         timeout: 24h
       }
       inputs {
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
         List<String> questions = GenerateHypotheses.verification_questions
         List<String> hypotheses = GenerateHypotheses.hypotheses
       }
@@ -49,6 +52,8 @@ workflow SystemDesignInterview {
     node VerifyHypotheses {
       call verify_hypotheses
       inputs {
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
+        List<String> questions = GenerateHypotheses.verification_questions
         List<String> hypotheses = GenerateHypotheses.hypotheses
         List<String> answers = AskUserVerification.answers
       }
@@ -63,28 +68,13 @@ workflow SystemDesignInterview {
       }
     }
 
-    node AskUserRetry {
-      call ask_user_retry
-      hitl {
-        correlation: "default",
-        timeout: 24h
-      }
-      inputs {
-        Bool is_valid = VerifyHypotheses.is_valid
-        String reason = VerifyHypotheses.verification_reason
-      }
-      when {
-        VerifyHypotheses.is_valid == false
-      }
-      outputs {
-        String new_input
-      }
-    }
-
     node GenerateSolution {
       call generate_solution
       inputs {
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
         String hypothesis = VerifyHypotheses.best_hypothesis
+        List<String> questions = GenerateHypotheses.verification_questions
+        List<String> answers = AskUserVerification.answers
         String draft = VerifyHypotheses.solution_draft
         Bool is_valid = VerifyHypotheses.is_valid
       }
@@ -102,6 +92,10 @@ workflow SystemDesignInterview {
     node CriticReview {
       call critic_review
       inputs {
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
+        String hypothesis = VerifyHypotheses.best_hypothesis
+        List<String> questions = GenerateHypotheses.verification_questions
+        List<String> answers = AskUserVerification.answers
         String solution = GenerateSolution.solution
         Bool is_valid = VerifyHypotheses.is_valid
       }
@@ -112,7 +106,28 @@ workflow SystemDesignInterview {
         VerifyHypotheses.is_valid
       }
       outputs {
-        (append) List<String> final_solution
+        String final_solution
+      }
+    }
+
+    node Summarizer {
+      call summarize
+      inputs {
+        String initial = InterviewLoop.initial_q
+        String current_question = InterviewLoop.current_question?
+        List<String> hypotheses = GenerateHypotheses.hypotheses
+        List<String> questions = GenerateHypotheses.verification_questions
+        List<String> answers = AskUserVerification.answers
+        String hypothesis = VerifyHypotheses.best_hypothesis
+        Bool is_valid = VerifyHypotheses.is_valid
+        String reason = VerifyHypotheses.verification_reason
+        String solution = CriticReview.final_solution?
+      }
+      const {
+        model: "gpt-oss:20b"
+      }
+      outputs {
+        (append) List<Record> hypotheses_history
       }
     }
 
@@ -123,6 +138,7 @@ workflow SystemDesignInterview {
         timeout: 24h
       }
       inputs {
+        List<Record> hypotheses_history = InterviewLoop.hypotheses_history?
         String solution = CriticReview.final_solution
         Bool is_valid = VerifyHypotheses.is_valid
       }
@@ -138,7 +154,7 @@ workflow SystemDesignInterview {
     node DetermineNextState {
         call determine_next_state
         inputs {
-            String retry_input = AskUserRetry.new_input?
+            String verification_reason = VerifyHypotheses.verification_reason?
             String next_input = AskUserNextSteps.new_input?
             String next_action = AskUserNextSteps.next_action?
             Bool is_valid = VerifyHypotheses.is_valid
@@ -148,7 +164,7 @@ workflow SystemDesignInterview {
             Bool should_stop
         }
         when {
-            (VerifyHypotheses.is_valid and AskUserNextSteps.next_action) or (not VerifyHypotheses.is_valid and AskUserRetry.new_input)
+            (VerifyHypotheses.is_valid and AskUserNextSteps.next_action) or (not VerifyHypotheses.is_valid)
         }
     }
     
@@ -166,7 +182,7 @@ workflow SystemDesignInterview {
   node SaveResults {
       call save_results
       inputs {
-          List<String> history = InterviewLoop.history
+          List<Record> history = InterviewLoop.history
       }
       outputs {
           String report
