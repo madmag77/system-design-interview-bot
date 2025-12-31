@@ -253,19 +253,34 @@ def save_results(history: List[dict], config: dict) -> dict:
     lines = ["# System Design Interview Report"]
     
     for i, record in enumerate(history or []):
-        lines.append(f"## Cycle {i+1}")
-        lines.append(f"**Question:** {record.get('current_question')}")
-        lines.append(f"**Hypothesis:** {record.get('hypothesis')}")
-        lines.append(f"**Valid:** {record.get('is_valid')}")
-        if record.get('is_the_best_hypothesis'):
-            lines.append("**Result:** Selected as Best Hypothesis")
-            if record.get('solution'):
-                lines.append("### Solution")
-                lines.append(record['solution'])
-        elif not record.get('is_valid'):
-             lines.append(f"**Invalid Reason:** {record.get('why_not_valid')}")
+        lines.append(f"### Hypothesis {i+1}")
+        lines.append(f"**Question:** {record.get('current_question')}\n")
+        lines.append(f"**Hypothesis:** {record.get('hypothesis')}\n")
+        
+        # Verification Q&A
+        questions = record.get('verification_questions', [])
+        answers = record.get('verification_answers', [])
+        if questions and answers:
+            lines.append("**Verification:**")
+            for q, a in zip(questions, answers):
+                lines.append(f"- **Q:** {q}")
+                lines.append(f"  **A:** {a}")
+            lines.append("") # Empty line
+
+        is_valid = record.get('is_valid')
+        if is_valid:
+            lines.append("**Status:** Valid")
+            if record.get('is_the_best_hypothesis'):
+                lines.append("**Result:** Selected as Best Hypothesis")
+                if record.get('solution'):
+                    lines.append("\n#### Solution")
+                    lines.append(record['solution'])
+        else:
+            lines.append("**Status:** Invalid")
+            reason = record.get('why_not_valid') or "No reason provided."
+            lines.append(f"**Invalid Reason:** {reason}")
              
-        lines.append("---")
+        lines.append("\n---\n")
         
     report = "\n".join(lines)
     return {"report": report}
