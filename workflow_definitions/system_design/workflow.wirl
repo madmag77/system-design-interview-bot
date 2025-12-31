@@ -1,0 +1,175 @@
+workflow SystemDesignInterview {
+  inputs {
+    String initial_question
+  }
+  
+  outputs {
+    String final_report = SaveResults.report
+  }
+
+  cycle InterviewLoop {
+    inputs {
+      String initial_q = initial_question
+    }
+    outputs {
+      List<String> history = CriticReview.final_solution
+    }
+
+    node GenerateHypotheses {
+      call generate_hypotheses
+      inputs {
+        String current_question = InterviewLoop.current_question?
+        String initial = InterviewLoop.initial_q
+        List<String> history = CriticReview.final_solution?
+      }
+      const {
+        model: "gpt-oss:20b"
+      }
+      outputs {
+        List<String> hypotheses
+        List<String> verification_questions
+      }
+    }
+
+    node AskUserVerification {
+      call ask_user_verification
+      hitl {
+        correlation: "default",
+        timeout: 24h
+      }
+      inputs {
+        List<String> questions = GenerateHypotheses.verification_questions
+        List<String> hypotheses = GenerateHypotheses.hypotheses
+      }
+      outputs {
+        List<String> answers
+      }
+    }
+
+    node VerifyHypotheses {
+      call verify_hypotheses
+      inputs {
+        List<String> hypotheses = GenerateHypotheses.hypotheses
+        List<String> answers = AskUserVerification.answers
+      }
+      const {
+        model: "gpt-oss:20b"
+      }
+      outputs {
+        Bool is_valid
+        String best_hypothesis
+        String solution_draft
+        String verification_reason
+      }
+    }
+
+    node AskUserRetry {
+      call ask_user_retry
+      hitl {
+        correlation: "default",
+        timeout: 24h
+      }
+      inputs {
+        Bool is_valid = VerifyHypotheses.is_valid
+        String reason = VerifyHypotheses.verification_reason
+      }
+      when {
+        VerifyHypotheses.is_valid == false
+      }
+      outputs {
+        String new_input
+      }
+    }
+
+    node GenerateSolution {
+      call generate_solution
+      inputs {
+        String hypothesis = VerifyHypotheses.best_hypothesis
+        String draft = VerifyHypotheses.solution_draft
+        Bool is_valid = VerifyHypotheses.is_valid
+      }
+      const {
+        model: "gpt-oss:20b"
+      }
+      when {
+        VerifyHypotheses.is_valid
+      }
+      outputs {
+        String solution
+      }
+    }
+
+    node CriticReview {
+      call critic_review
+      inputs {
+        String solution = GenerateSolution.solution
+        Bool is_valid = VerifyHypotheses.is_valid
+      }
+      const {
+        model: "gpt-oss:20b"
+      }
+      when {
+        VerifyHypotheses.is_valid
+      }
+      outputs {
+        (append) List<String> final_solution
+      }
+    }
+
+    node AskUserNextSteps {
+      call ask_user_next_steps
+      hitl {
+        correlation: "default",
+        timeout: 24h
+      }
+      inputs {
+        String solution = CriticReview.final_solution
+        Bool is_valid = VerifyHypotheses.is_valid
+      }
+      when {
+        VerifyHypotheses.is_valid
+      }
+      outputs {
+        String next_action
+        String new_input
+      }
+    }
+    
+    node DetermineNextState {
+        call determine_next_state
+        inputs {
+            String retry_input = AskUserRetry.new_input?
+            String next_input = AskUserNextSteps.new_input?
+            String next_action = AskUserNextSteps.next_action?
+            Bool is_valid = VerifyHypotheses.is_valid
+        }
+        outputs {
+            String next_question
+            Bool should_stop
+        }
+        when {
+            (VerifyHypotheses.is_valid and AskUserNextSteps.next_action) or (not VerifyHypotheses.is_valid and AskUserRetry.new_input)
+        }
+    }
+    
+    guard {
+      inputs {
+        Bool should_stop = DetermineNextState.should_stop
+      }
+      when {
+        DetermineNextState.should_stop
+      }
+    }
+    max_iterations: 10
+  }
+
+  node SaveResults {
+      call save_results
+      inputs {
+          List<String> history = InterviewLoop.history
+      }
+      outputs {
+          String report
+      }
+  }
+}
