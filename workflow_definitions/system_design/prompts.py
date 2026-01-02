@@ -39,6 +39,8 @@ VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
     Task: Analyze the answers to determine if your hypotheses are valid/viable risks that need solving. Also choose the most interesting/challenging one as "best_hypothesis" that worth solving.
     
     Finally, provide a very brief "solution_draft" or direction for the best hypothesis you chose (e.g., "I will focus on Search Latency using a Geohash approach").
+    
+    You must provide a "reason" for EACH hypothesis, explaining why it is valid or invalid based on the user's answers.
     """
 )
 

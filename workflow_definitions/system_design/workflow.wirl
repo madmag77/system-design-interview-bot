@@ -131,6 +131,9 @@ workflow SystemDesignInterview {
       outputs {
         (append) List<Record> hypotheses_history
       }
+      when {
+        (VerifyHypotheses.is_valid and CriticReview.final_solution) or (not VerifyHypotheses.is_valid)
+      }
     }
 
     node AskUserNextSteps {

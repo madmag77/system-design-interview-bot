@@ -19,7 +19,7 @@ class HypothesesList(BaseModel):
 class HypothesisVerification(BaseModel):
     hypothesis: str = Field(description="The text of the hypothesis being verified")
     is_valid: bool = Field(description="True if this specific hypothesis is valid")
-    reason: Optional[str] = Field(description="Reason provided if invalid, or other comments")
+    reason: str = Field(description="Explanation for why this is valid or invalid")
     is_best: bool = Field(description="True if this is selected as the best interesting hypothesis")
 
 class VerificationResult(BaseModel):
@@ -287,14 +287,18 @@ def save_results(history: List[dict], config: dict) -> dict:
         if is_valid:
             lines.append("**Status:** Valid")
             if record.get('is_the_best_hypothesis'):
-                lines.append("**Result:** Selected as Best Hypothesis")
+                lines.append(" **(Best Hypothesis)**")
+                reason = record.get('why_not_valid')
+                if reason:
+                     lines.append(f"**Reason why valid:** {reason}")
                 if record.get('solution'):
                     lines.append("\n#### Solution")
                     lines.append(record['solution'])
         else:
-            lines.append("**Status:** Invalid")
-            reason = record.get('why_not_valid') or "No reason provided."
-            lines.append(f"**Invalid Reason:** {reason}")
+            lines.append("**Status:** Not Valid")
+            reason = record.get('why_not_valid')
+            if reason:
+                 lines.append(f"**Reason why not valid:** {reason}")
              
         lines.append("\n---\n")
         
