@@ -16,11 +16,15 @@ class HypothesesList(BaseModel):
     hypotheses: List[str] = Field(description="List of distinct hypotheses regarding potential bottlenecks/risks")
     verification_questions: List[str] = Field(description="List of specific verification questions to ask the interviewer")
 
+class HypothesisVerification(BaseModel):
+    hypothesis: str = Field(description="The text of the hypothesis being verified")
+    is_valid: bool = Field(description="True if this specific hypothesis is valid")
+    reason: Optional[str] = Field(description="Reason provided if invalid, or other comments")
+    is_best: bool = Field(description="True if this is selected as the best interesting hypothesis")
+
 class VerificationResult(BaseModel):
-    is_valid: bool = Field(description="True if any hypothesis is valid/viable risk that needs solving")
-    best_hypothesis: str = Field(description="The text of the best valid hypothesis, or empty if none valid")
-    solution_draft: str = Field(description="Brief solution draft or direction, if valid")
-    reason: str = Field(description="Reason why hypotheses are invalid, or empty if valid")
+    hypotheses_feedback: List[HypothesisVerification] = Field(description="List of verification details for each hypothesis")
+    solution_draft: Optional[str] = Field(description="Brief solution draft for the best hypothesis")
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +82,30 @@ def verify_hypotheses(
     
     # response is VerificationResult instance
     response = chain.invoke({"hypotheses": hypotheses, "answers": answers, "history": history_text, "questions": questions})
+    
+    # Determine global validity and best hypothesis from detailed feedback
+    feedback = response.hypotheses_feedback
+    is_valid_global = any(h.is_valid for h in feedback)
+    
+    best_h = next((h.hypothesis for h in feedback if h.is_best), "")
+    if not best_h and is_valid_global:
+         # Fallback: pick first valid
+         best_h = next((h.hypothesis for h in feedback if h.is_valid), "")
+
+    # Construct global reason from invalid hypotheses if global is invalid
+    global_reason = ""
+    if not is_valid_global:
+        reasons = [f"{h.hypothesis}: {h.reason}" for h in feedback if h.reason]
+        global_reason = "; ".join(reasons) or "No valid hypotheses found."
+
+    logger.info(f"Verification Result: Valid={is_valid_global}, Best={best_h}")
             
     return {
-        "is_valid": response.is_valid,
-        "best_hypothesis": response.best_hypothesis,
-        "solution_draft": response.solution_draft,
-        "verification_reason": response.reason
+        "is_valid": is_valid_global,
+        "best_hypothesis": best_h,
+        "solution_draft": response.solution_draft or "",
+        "verification_reason": global_reason,
+        "verification_details": [h.model_dump() for h in feedback]
     }
 
 def ask_user_retry(is_valid: bool, reason: str, config: dict, **kwargs) -> dict:
@@ -131,35 +153,41 @@ def summarize(
     reason: str,
     current_question: Optional[str] = None,
     solution: Optional[str] = None,
+    verification_details: Optional[List[dict]] = None,
     config: dict = None
 ) -> dict:
     
     new_records = []
-    
-    # We iterate over all generated hypotheses for this cycle
-    # We need to determine for each if it is valid, is best, etc.
-    # Logic: 
-    # - If VerifyHypotheses.is_valid is True, then 'hypothesis' (best) is valid and is the best.
-    # - What about others? The user said: "It could be that LLM creates 3 hypotheses but after verification with user there will be just one valid".
-    # - So we mark the one equal to `hypothesis` (best) as valid and best. Others as invalid? Or just not best?
-    # - If VerifyHypotheses.is_valid is False, then ALL are invalid (conceptually, or at least the best one wasn't valid enough).
-    
-    # Let's assume 'hypotheses' list contains all candidates.
-    
     current_q_text = current_question if current_question else initial
+
+    if verification_details:
+        # We have detailed per-hypothesis feedback
+        for item in verification_details:
+             # item is dict from HypothesisVerification
+             h_text = item.get("hypothesis")
+             h_valid = item.get("is_valid", False)
+             h_reason = item.get("reason", "")
+             h_is_best = item.get("is_best", False)
+             
+             record = {
+                "initial_query": initial,
+                "current_question": current_q_text,
+                "hypothesis": h_text,
+                "verification_questions": questions,
+                "verification_answers": answers,
+                "is_the_best_hypothesis": h_is_best,
+                "is_valid": h_valid,
+                "why_not_valid": h_reason
+            }
+             
+             if h_is_best and solution:
+                 record["solution"] = solution
+                 
+             new_records.append(record)
+    else:
+        # Fallback for old behavior (should not happen if WIRL updated)
+        # We iterate over all generated hypotheses for this cycle
     
-    for h in hypotheses:
-        record = {
-            "initial_query": initial,
-            "current_question": current_q_text,
-            "hypothesis": h,
-            "verification_questions": questions,
-            "verification_answers": answers,
-            "is_the_best_hypothesis": False,
-            "is_valid": False,
-            "why_not_valid": ""
-        }
-        
         if is_valid:
             if h == hypothesis:
                 record["is_the_best_hypothesis"] = True
@@ -168,16 +196,10 @@ def summarize(
                 if solution:
                     record["solution"] = solution
             else:
-                # Other hypotheses in this valid batch
-                # We don't know for sure if they were valid but rejected, or invalid.
-                # Assuming not selected means not the best. 
-                # We'll leave is_valid as False (or maybe we shouldn't assert it).
-                # But strictly speaking, if is_valid=True globally for the step, it means we found A VALID/BEST one.
                 pass
         else:
-            # None are valid (or the best wasn't valid)
-            record["is_valid"] = False
-            record["why_not_valid"] = reason
+             record["is_valid"] = False
+             record["why_not_valid"] = reason
             
         new_records.append(record)
 
@@ -200,13 +222,6 @@ def determine_next_state(
     config: dict = None
 ) -> dict:
     logger.info(f"Determining next state. is_valid={is_valid}, next_action={next_action}")
-    
-    # We remove **kwargs because verification_reason is passed as explicit argument in WIRL
-    # wait, in WIRL: verification_reason = VerifyHypotheses.verification_reason?
-    # but verification_reason is missing from signature here?
-    # Ah, I need to add it! User complaint was about it missing.
-    # But wait, in previous step I added **kwargs to fix it.
-    # Now I must remove **kwargs and add verification_reason explicitly as Optional.
     
     should_stop = False
     next_question = ""

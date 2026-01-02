@@ -65,6 +65,7 @@ workflow SystemDesignInterview {
         String best_hypothesis
         String solution_draft
         String verification_reason
+        List<Record> verification_details
       }
     }
 
@@ -122,6 +123,7 @@ workflow SystemDesignInterview {
         Bool is_valid = VerifyHypotheses.is_valid
         String reason = VerifyHypotheses.verification_reason
         String solution = CriticReview.final_solution?
+        List<Record> verification_details = VerifyHypotheses.verification_details?
       }
       const {
         model: "gpt-oss:20b"

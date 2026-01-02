@@ -36,11 +36,9 @@ VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
     Interviewer's Answers to Verification Questions:
     {answers}
     
-    Task: Analyze the answers to determine if your hypotheses are valid/viable risks that need solving.
+    Task: Analyze the answers to determine if your hypotheses are valid/viable risks that need solving. Also choose the most interesting/challenging one as "best_hypothesis" that worth solving.
     
-    If neither hypothesis is valid based on the answers (e.g., scale is too low), return "is_valid": false.
-    If one or both are valid, choose the most interesting/challenging one as "best_hypothesis" and return "is_valid": true.
-    Also provide a very brief "solution_draft" or direction (e.g., "I will focus on Search Latency using a Geohash approach").
+    Finally, provide a very brief "solution_draft" or direction for the best hypothesis you chose (e.g., "I will focus on Search Latency using a Geohash approach").
     """
 )
 

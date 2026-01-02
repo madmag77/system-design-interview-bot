@@ -13,7 +13,7 @@ from langgraph.types import Command
 from langgraph.errors import GraphInterrupt
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, Field
-from workflow_definitions.system_design.functions import HypothesesList, VerificationResult
+from workflow_definitions.system_design.functions import HypothesesList, VerificationResult, HypothesisVerification
 
 from workflow_definitions.system_design.functions import (
     generate_hypotheses,
@@ -58,11 +58,16 @@ def test_system_design_integration(mock_get_llm, workflow_path):
     )
     
     # 2. Verify Hypotheses (Structured)
-    verify_obj = VerificationResult(
+    # Using new HypothesisVerification schema
+    h1_verify = HypothesisVerification(
+        hypothesis="H1",
         is_valid=True,
-        best_hypothesis="H1",
-        solution_draft="Draft",
-        reason="Valid"
+        reason="Good",
+        is_best=True
+    )
+    verify_obj = VerificationResult(
+        hypotheses_feedback=[h1_verify],
+        solution_draft="Draft"
     )
     
     # 3. Generate Solution (String - Normal Invoke)
