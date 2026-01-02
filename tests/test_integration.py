@@ -12,6 +12,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from langgraph.errors import GraphInterrupt
 from langchain_core.messages import AIMessage
+from pydantic import BaseModel, Field
+from workflow_definitions.system_design.functions import HypothesesList, VerificationResult
 
 from workflow_definitions.system_design.functions import (
     generate_hypotheses,
@@ -49,41 +51,51 @@ def test_system_design_integration(mock_get_llm, workflow_path):
     # We need to simulate different responses based on the prompt/context, 
     # or just return a generic valid JSON that works for all steps.
     
-    # 1. Generate Hypotheses
-    hypotheses_resp = json.dumps({
-        "hypotheses": ["H1", "H2"],
-        "verification_questions": ["Q1"]
-    })
+    # 1. Generate Hypotheses (Structured)
+    hypotheses_obj = HypothesesList(
+        hypotheses=["H1", "H2"],
+        verification_questions=["Q1"]
+    )
     
-    # 2. Verify Hypotheses
-    verify_resp = json.dumps({
-        "is_valid": True,
-        "best_hypothesis": "H1",
-        "solution_draft": "Draft",
-        "reason": "Valid"
-    })
+    # 2. Verify Hypotheses (Structured)
+    verify_obj = VerificationResult(
+        is_valid=True,
+        best_hypothesis="H1",
+        solution_draft="Draft",
+        reason="Valid"
+    )
     
-    # 3. Generate Solution
+    # 3. Generate Solution (String - Normal Invoke)
     solution_resp = "Solution content"
     
-    # 4. Critic Review
+    # 4. Critic Review (String - Normal Invoke)
     critic_resp = "Final Solution"
     
-    # Configure side effects for LLM invoke
-    # The order of calls: GenerateHypotheses -> VerifyHypotheses -> GenerateSolution -> CriticReview
+    # Config: 
+    # generate_hypotheses: get_llm -> structured_llm -> invoke -> HypothesesList
+    # verify_hypotheses: get_llm -> structured_llm -> invoke -> VerificationResult
+    # generate_solution: get_llm -> invoke -> AIMessage
+    # critic_review: get_llm -> invoke -> AIMessage
     
-    # invoke() returns a message with .content
-    msg_hyp = AIMessage(content=hypotheses_resp)
-    msg_ver = AIMessage(content=verify_resp)
+    # We need to distinguish calls. 
+    # mock_get_llm returns mock_llm_instance
+    # mock_llm_instance.with_structured_output returns ??? (maybe same mock or new one)
+    
+    mock_structured_llm = MagicMock()
+    mock_llm_instance.with_structured_output.return_value = mock_structured_llm
+    
+    # Set side effects
+    
+    # structured_llm.invoke calls:
+    # When using pipe syntax, the runnable is often invoked directly
+    mock_structured_llm.side_effect = [hypotheses_obj, verify_obj]
+    mock_structured_llm.invoke.side_effect = [hypotheses_obj, verify_obj]
+    
+    # normal llm.invoke calls (for solution and critic)
     msg_sol = AIMessage(content=solution_resp)
     msg_cri = AIMessage(content=critic_resp)
-    
-    # We can use side_effect iter
-    # When using LCEL with a mock, usually it's treated as a RunnableLambda which calls the mock.
-    # So we set side_effect on the mock object itself.
-    mock_llm_instance.side_effect = [msg_hyp, msg_ver, msg_sol, msg_cri]
-    # Just in case invoke IS called (if mock spec detects Runnable)
-    mock_llm_instance.invoke.side_effect = [msg_hyp, msg_ver, msg_sol, msg_cri]
+    mock_llm_instance.side_effect = [msg_sol, msg_cri]
+    mock_llm_instance.invoke.side_effect = [msg_sol, msg_cri]
 
     fn_map = {
         "generate_hypotheses": generate_hypotheses,

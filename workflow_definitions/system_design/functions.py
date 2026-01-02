@@ -8,28 +8,25 @@ from workflow_definitions.system_design.prompts import (
     GENERATE_SOLUTION_PROMPT,
     CRITIC_REVIEW_PROMPT
 )
+from pydantic import BaseModel, Field
+
+# Define Pydantic Models for Structured Output
+
+class HypothesesList(BaseModel):
+    hypotheses: List[str] = Field(description="List of distinct hypotheses regarding potential bottlenecks/risks")
+    verification_questions: List[str] = Field(description="List of specific verification questions to ask the interviewer")
+
+class VerificationResult(BaseModel):
+    is_valid: bool = Field(description="True if any hypothesis is valid/viable risk that needs solving")
+    best_hypothesis: str = Field(description="The text of the best valid hypothesis, or empty if none valid")
+    solution_draft: str = Field(description="Brief solution draft or direction, if valid")
+    reason: str = Field(description="Reason why hypotheses are invalid, or empty if valid")
 
 logger = logging.getLogger(__name__)
 
 def get_llm(config: dict):
     model = config.get("model", "llama3")
     return ChatOllama(model=model, temperature=0.7)
-
-def parse_json(content: str) -> dict:
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-            return json.loads(content)
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-            try:
-                return json.loads(content)
-            except:
-                pass
-    logger.error(f"Failed to parse JSON content: {content[:100]}...")
-    return {}
 
 def generate_hypotheses(
     current_question: Optional[str] = None, 
@@ -41,15 +38,17 @@ def generate_hypotheses(
     
     question = current_question or initial
     logger.info(f"Generating hypotheses for question: {question}")
-    llm = get_llm(config)
-    chain = GENERATE_HYPOTHESES_PROMPT | llm
-    response = chain.invoke({"initial_request": initial, "question": question, "history": history_text})
-    logger.info(f"LLM Response (Hypotheses): {response.content}")
-    data = parse_json(response.content)
     
-    hypotheses = data.get("hypotheses", [])
-    verification_questions = data.get("verification_questions", [])
-    logger.info(f"Parsed Hypotheses: {len(hypotheses)}, Verification Questions: {len(verification_questions)}")
+    llm = get_llm(config)
+    structured_llm = llm.with_structured_output(HypothesesList, method="json_schema")
+    chain = GENERATE_HYPOTHESES_PROMPT | structured_llm
+    
+    # response will be an instance of HypothesesList
+    response = chain.invoke({"initial_request": initial, "question": question, "history": history_text})
+    
+    hypotheses = response.hypotheses
+    verification_questions = response.verification_questions
+    logger.info(f"Generated Hypotheses: {len(hypotheses)}, Verification Questions: {len(verification_questions)}")
             
     return {
         "hypotheses": hypotheses,
@@ -71,18 +70,20 @@ def verify_hypotheses(
     logger.info(f"Verifying hypotheses: {hypotheses} with answers: {answers}")
     
     history_text = "\n\n".join([str(h) for h in hypotheses_history]) if hypotheses_history else "No previous history."
-
+ 
     llm = get_llm(config)
+    structured_llm = llm.with_structured_output(VerificationResult, method="json_schema")
     # answers might be passed as a list or string depending on how UI sends it
-    chain = VERIFY_HYPOTHESES_PROMPT | llm
+    chain = VERIFY_HYPOTHESES_PROMPT | structured_llm
+    
+    # response is VerificationResult instance
     response = chain.invoke({"hypotheses": hypotheses, "answers": answers, "history": history_text, "questions": questions})
-    data = parse_json(response.content)
             
     return {
-        "is_valid": data.get("is_valid", False),
-        "best_hypothesis": data.get("best_hypothesis", ""),
-        "solution_draft": data.get("solution_draft", ""),
-        "verification_reason": data.get("reason", "No reason provided by the critic.")
+        "is_valid": response.is_valid,
+        "best_hypothesis": response.best_hypothesis,
+        "solution_draft": response.solution_draft,
+        "verification_reason": response.reason
     }
 
 def ask_user_retry(is_valid: bool, reason: str, config: dict, **kwargs) -> dict:

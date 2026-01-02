@@ -18,12 +18,6 @@ GENERATE_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
        - Example: "I see two potential risks: 1) Read Latency if QPS is high, 2) Write Conflicts if multiple users edit the same item. Can we clarify the scale?"
     
     Your task is to formulate these 2 distinct hypotheses and 2-3 specific verification questions to ask the interviewer.
-    
-    Output your response in JSON format:
-    {{
-        "hypotheses": ["hypothesis 1", "hypothesis 2"],
-        "verification_questions": ["verification question 1", "verification question 2"]
-    }}
     """
 )
 
@@ -47,14 +41,6 @@ VERIFY_HYPOTHESES_PROMPT = ChatPromptTemplate.from_template(
     If neither hypothesis is valid based on the answers (e.g., scale is too low), return "is_valid": false.
     If one or both are valid, choose the most interesting/challenging one as "best_hypothesis" and return "is_valid": true.
     Also provide a very brief "solution_draft" or direction (e.g., "I will focus on Search Latency using a Geohash approach").
-    
-    Output a JSON object with the following structure:
-    {{
-      "is_valid": boolean,
-      "best_hypothesis": "The full text of the valid hypothesis (if valid)",
-      "solution_draft": "A high-level direction/concept for solving it (if valid)",
-      "reason": "If invalid, explain why based on the user's answers. If valid, you can leave empty."
-    }}
     """
 )
 

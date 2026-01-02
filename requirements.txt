@@ -8,3 +8,4 @@ langchain-openai>=0.2.14
 numpy>=1.24.0
 langgraph>=0.2.60
 pytest>=8.0.0
+pydantic>=2.0.0
