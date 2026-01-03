@@ -80,8 +80,17 @@ def test_system_design_integration(mock_get_llm, workflow_path):
         
         msg_sol = AIMessage(content=solution_resp)
         msg_cri = AIMessage(content=critic_resp)
+        msg_analysis = AIMessage(content="Analysis Result")
+        
+        # mock_llm_instance is used for generate_solution and critic_review
         mock_llm_instance.side_effect = itertools.cycle([msg_sol, msg_cri])
         mock_llm_instance.invoke.side_effect = itertools.cycle([msg_sol, msg_cri])
+        
+        # mock_bound_llm is used for verify_hypotheses (agent loop)
+        mock_bound_llm = MagicMock()
+        mock_bound_llm.invoke.return_value = msg_analysis
+        mock_llm_instance.bind_tools.return_value = mock_bound_llm
+
 
         # SPIES
         spies = {
