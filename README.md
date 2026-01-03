@@ -58,9 +58,16 @@ This workflow simulates a system design interview where the **Bot acts as the Ca
 
 ## 📊 Evaluation
 
-The project includes an automated evaluation script to benchmark the bot's performance on system design tasks.
+The project includes an automatic evaluation script to benchmark the bot's performance. It uses an **LLM as a Judge** to evaluate the quality of the generated solutions.
 
-1. **Run Evaluation**:
+### How it works
+The evaluator reads tasks, context, and expected main points from a CSV file (e.g., `evaluation/tasks.csv`). It runs the bot against these scenarios and uses an LLM to grade the generated solutions on a scale of **0 to 5**.
+
+**Current Baseline**: The architecture currently achieves an average score of **4.3/5**.
+
+### Running Evaluation
+
+1. **Run Evaluator**:
    By default, this runs tasks defined in `evaluation/tasks.csv` (10 diverse scenarios):
    ```bash
    python evaluation/evaluator.py [path/to/tasks.csv]
