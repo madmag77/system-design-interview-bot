@@ -1,0 +1,3 @@
+task_id,initial_prompt,context_phase_1,context_phase_2,ideal_outcome
+1,"Design a Twitter-like feed","10M DAU, Read-heavy, 5k writes/sec","Scale to 100M DAU, 50k writes/sec, global distribution","Should identify read fan-out issues initially, then address write throughput and global replication in phase 2."
+2,"Design a URL Shortener","Internal tool, low traffic","Public facing, 1B links/year","Should start with simple SQL db, then move to distributed KV store or NoSQL with caching."

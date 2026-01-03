@@ -33,8 +33,8 @@ class VerificationResult(BaseModel):
 logger = logging.getLogger(__name__)
 
 def get_llm(config: dict):
-    model = config.get("model", "llama3")
-    return ChatOllama(model=model, temperature=0.7)
+    model = config.get("model", "gemma3:27b")
+    return ChatOllama(model=model, temperature=0.1)
 
 def generate_hypotheses(
     current_question: Optional[str] = None, 
