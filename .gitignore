@@ -216,4 +216,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 .DS_Store
-eval_reports/
+eval_reports/*.csv
