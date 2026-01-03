@@ -82,22 +82,10 @@ def run_evaluation_loop(tasks_file="evaluation/tasks.csv"):
             # Expected interrupt for verification questions
             pass
             
-        # Extract verification questions from state
-        snapshot = app.get_state(config)
-        state_values = snapshot.values
+        # Handle Phase 1 Verification Loop (handles retries if hypotheses invalid)
+        logger.info("Entering Phase 1 Verification Loop")
+        handle_verification_loop(app, config, interviewer, task['context_phase_1'])
         
-        latest_questions = state_values.get("GenerateHypotheses", {}).get("verification_questions", [])
-        if not latest_questions:
-             latest_questions = ["Clarify scale", "Clarify strictness"]
-             
-        answers = interviewer.answer_verification(latest_questions, task['context_phase_1'])
-        logger.info(f"Generated Phase 1 Answers (count: {len(answers)})")
-        
-        try:
-            app.invoke(Command(resume=answers), config)
-        except GraphInterrupt:
-            pass
-            
         # Phase 2: Inject Challenge
         logger.info("Phase 2: Injecting Challenge")
         challenge = interviewer.generate_challenge(task['context_phase_2'])
@@ -108,25 +96,18 @@ def run_evaluation_loop(tasks_file="evaluation/tasks.csv"):
         except GraphInterrupt:
              pass
         
-        # Phase 2 Verification
-        snapshot = app.get_state(config)
-        state_values = snapshot.values
-        latest_questions = state_values.get("GenerateHypotheses", {}).get("verification_questions", [])
-        
-        answers_p2 = interviewer.answer_verification(latest_questions, task['context_phase_2'])
-        logger.info(f"Generated Phase 2 Answers (count: {len(answers_p2)})")
-        
-        try:
-            app.invoke(Command(resume=answers_p2), config)
-        except GraphInterrupt:
-            pass
+        # Handle Phase 2 Verification Loop
+        logger.info("Entering Phase 2 Verification Loop")
+        handle_verification_loop(app, config, interviewer, task['context_phase_2'])
             
         # Finish
         app.invoke(Command(resume={"next_action": "stop", "new_input": ""}), config)
-        
+
         # Get Final Report
         snapshot = app.get_state(config)
         final_report = snapshot.values.get("SaveResults.report")
+        if not final_report:
+            logger.error(f"Report NOT FOUND. Available keys in state: {list(snapshot.values.keys())}")
         final_report = final_report or "No Report Found"
         
         # Score
@@ -149,6 +130,44 @@ def run_evaluation_loop(tasks_file="evaluation/tasks.csv"):
         writer.writerows(results)
         
     logger.info(f"Evaluation complete. Results saved to {out_file}")
+
+def handle_verification_loop(app, config, interviewer, context):
+    """
+    Continues to provide answers to verification questions until the workflow
+    reaches the 'AskUserNextSteps' node (indicating a valid solution) or stops.
+    """
+    while True:
+        snapshot = app.get_state(config)
+        if not snapshot.next:
+            break
+            
+        next_step = snapshot.next[0]
+        
+        if next_step == "AskUserNextSteps":
+            # Valid solution reached, ready for next phase/stop
+            break
+            
+        if next_step == "AskUserVerification":
+            # Workflow needs answers (either first attempt or retry after invalid)
+            state_values = snapshot.values
+            latest_questions = state_values.get("GenerateHypotheses.verification_questions", [])
+            
+            if not latest_questions:
+                 logger.error("No verification questions found in state")
+            
+            logger.info(f"Generating Loop Answers (count: {len(latest_questions)})")     
+            answers = interviewer.answer_verification(latest_questions, context)
+            
+            try:
+                app.invoke(Command(resume=answers), config)
+            except GraphInterrupt:
+                continue
+        else:
+             # Unexpected state, maybe log and break? 
+             # For now assume if it's not NextSteps, it's something we should try to resume or let follow-through
+             # But strictly we only handle Verification here.
+             logger.warning(f"Unexpected next step in verification loop: {next_step}")
+             break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run system design interview evaluation.")

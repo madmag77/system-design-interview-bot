@@ -16,7 +16,8 @@ from langgraph.types import Command
 @patch("evaluation.evaluator.SimulatedInterviewer")
 @patch("evaluation.evaluator.build_pregel_graph")
 @patch("evaluation.evaluator.load_tasks")
-def test_evaluation_loop(mock_load_tasks, mock_build_graph, mock_interviewer_cls, mock_chat_ollama):
+@patch("builtins.open", new_callable=MagicMock)
+def test_evaluation_loop(mock_open, mock_load_tasks, mock_build_graph, mock_interviewer_cls, mock_chat_ollama):
     # Setup Mocks
     mock_load_tasks.return_value = [
         {
@@ -65,14 +66,60 @@ def test_evaluation_loop(mock_load_tasks, mock_build_graph, mock_interviewer_cls
         {"messages": []}  # 5 Success
     ]
     
-    # Mock State
-    mock_snapshot = MagicMock()
-    mock_snapshot.values = {
-        "GenerateHypotheses": {"verification_questions": ["Q1"]},
+    # Mock State and its evolution
+    # The loop calls get_state() repeatedly.
+    # We need to simulate the state "next" field to control the loop:
+    # Phase 1:
+    #  1. Initial invoke -> Interrupt.
+    #  2. get_state -> next=["AskUserVerification"] (Loop starts, needs answers)
+    #  3. invoke(answers) -> Interrupt.
+    #  4. get_state -> next=["AskUserNextSteps"] (Loop ends, valid)
+    
+    # Phase 2:
+    #  1. invoke(challenge) -> Interrupt.
+    #  2. get_state -> next=["AskUserVerification"] (Loop starts, needs answers)
+    #  3. invoke(answers) -> Interrupt.
+    #  4. get_state -> next=["AskUserNextSteps"] (Loop ends, valid)
+    
+    # Final:
+    #  1. invoke(stop) -> Success
+    #  2. get_state -> final report
+    
+    # So get_state is called:
+    # 1. Inside loop P1 (start)
+    # 2. Inside loop P1 (check after invoke)
+    # 3. Inside loop P2 (start)
+    # 4. Inside loop P2 (check after invoke)
+    # 5. After finish to get report
+    
+    state_p1_start = MagicMock()
+    state_p1_start.next = ["AskUserVerification"]
+    state_p1_start.values = {"GenerateHypotheses": {"verification_questions": ["Q1"]}}
+    
+    state_p1_end = MagicMock()
+    state_p1_end.next = ["AskUserNextSteps"]
+    
+    state_p2_start = MagicMock()
+    state_p2_start.next = ["AskUserVerification"]
+    state_p2_start.values = {"GenerateHypotheses": {"verification_questions": ["Q2"]}}
+    
+    state_p2_end = MagicMock()
+    state_p2_end.next = ["AskUserNextSteps"]
+    
+    state_final = MagicMock()
+    state_final.next = []
+    state_final.values = {
         "SaveResults": {"report": "Final Report Used For Scoring"},
         "SaveResults.report": "Final Report Used For Scoring"
     }
-    mock_app.get_state.return_value = mock_snapshot
+    
+    mock_app.get_state.side_effect = [
+        state_p1_start, # Phase 1 Loop Start
+        state_p1_end,   # Phase 1 Loop End (after answer invoke)
+        state_p2_start, # Phase 2 Loop Start
+        state_p2_end,   # Phase 2 Loop End
+        state_final     # Final Report
+    ]
 
     # Run loop
     try:
@@ -89,13 +136,8 @@ def test_evaluation_loop(mock_load_tasks, mock_build_graph, mock_interviewer_cls
     # Verify report was passed to scorer
     mock_interviewer.score_report.assert_called_with("Final Report Used For Scoring", "Outcome")
     
-    # Cleanup csv
-    # The script writes to evaluation/results_...csv
-    # We can just ignore it or find and delete
-    # simple cleanup:
-    eval_dir = Path("evaluation")
-    for f in eval_dir.glob("results_*.csv"):
-        try:
-           f.unlink()
-        except:
-            pass
+    # Verify report was passed to scorer
+    mock_interviewer.score_report.assert_called_with("Final Report Used For Scoring", "Outcome")
+    
+    # Verify file write occurred (optional, but good to check)
+    mock_open.assert_called()
