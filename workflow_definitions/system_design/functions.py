@@ -5,19 +5,14 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from workflow_definitions.system_design.prompts import (
     GENERATE_HYPOTHESES_PROMPT,
-    VERIFY_HYPOTHESES_PROMPT,
     GENERATE_SOLUTION_PROMPT,
-    CRITIC_REVIEW_PROMPT
+    CRITIC_REVIEW_PROMPT,
+    AGENT_SYSTEM_PROMPT,
+    STRUCTURED_EXTRACTOR_PROMPT
 )
 from pydantic import BaseModel, Field
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, BaseMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
-import operator
-from typing import TypedDict, Annotated, Union
-import sys
-from io import StringIO
+from langchain_core.messages import HumanMessage, SystemMessage
+from workflow_definitions.system_design.agent import build_agent_graph
 
 # Define Pydantic Models for Structured Output
 
@@ -73,30 +68,6 @@ def ask_user_verification(questions: List[str], config: dict, **kwargs) -> dict:
     logger.info(f"AskUserVerification executing with {len(questions)} questions")
     return {} 
 
-@tool
-def run_python(code: str) -> str:
-    """Run python code to calculate system design metrics.
-    
-    Useful for calculating QPS, storage requirements, bandwidth, etc.
-    The code should print the result to stdout.
-    """
-    try:
-        logger.info(f"Running python code: {code}")
-        # Create a local namespace for execution
-        local_scope = {}
-        old_stdout = sys.stdout
-        redirected_output = sys.stdout = StringIO()
-        
-        exec(code, {}, local_scope)
-        
-        sys.stdout = old_stdout
-        return redirected_output.getvalue().strip()
-    except Exception as e:
-        return f"Error executing code: {e}"
-
-class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], operator.add]
-
 def verify_hypotheses(
     hypotheses: List[str], 
     answers: List[str], 
@@ -111,50 +82,11 @@ def verify_hypotheses(
     llm = get_llm(config)
     
     # 1. Define the Agent Logic
-    
-    tools = [run_python]
-    llm_with_tools = llm.bind_tools(tools)
-    
-    def call_model(state: AgentState):
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
-    
-    workflow = StateGraph(AgentState)
-    workflow.add_node("agent", call_model)
-    workflow.add_node("tools", ToolNode(tools))
-    
-    workflow.add_edge(START, "agent")
-    workflow.add_conditional_edges("agent", tools_condition)
-    workflow.add_edge("tools", "agent")
-    
-    # Initialize the graph
-    app = workflow.compile()
-    
-    # Create the initial prompt for the agent
-    # We encourage tool use in the system message
-    system_msg = SystemMessage(content="""You are a Senior Software Engineer acting as a candidate on a System Design Interview.
-    
-    Your task is to scientifically verify if the hypotheses below are valid/viable risks based on the interviewer's answers.
-    
-    You have access to a python tool. You MUST use it to calculate metrics (like QPS, Storage, Bandwidth) if the answers contain numbers to back up your reasoning.
-    
-    Hypotheses to verify:
-    {hypotheses}
-    
-    Verification Questions asked:
-    {questions}
-    
-    Interviewer's Answers:
-    {answers}
-    
-    History:
-    {history}
-    
-    After you have performed necessary calculations and reasoning, output your final detailed analysis.
-    """)
+    app = build_agent_graph(llm)
     
     # Run the agent part
     # We format the input slightly to ensure variables are strings
-    formatted_sys_msg = system_msg.content.format(
+    formatted_sys_msg = AGENT_SYSTEM_PROMPT.format(
         hypotheses=str(hypotheses),
         questions=str(questions),
         answers=str(answers),
@@ -174,24 +106,8 @@ def verify_hypotheses(
     
     structured_llm = llm.with_structured_output(VerificationResult, method="json_schema")
     
-    schema_prompt = ChatPromptTemplate.from_template("""You are a structured data extractor.
-    
-    Based on the following detailed analysis by a System Design Engineer, extract the verification results.
-    
-    Analysis:
-    {analysis}
-    
-    Hypotheses list that were analyzed:
-    {hypotheses}
-    
-    Extract:
-    1. Valid/Invalid status for each hypothesis with the REASON from the analysis.
-    2. The 'best_hypothesis' (most critical/interesting valid one).
-    3. A brief solution draft if mentioned.
-    """)
-    
-    chain = schema_prompt | structured_llm
-    response = chain.invoke({"analysis": final_output, "hypotheses": str(hypotheses)})
+    chain = STRUCTURED_EXTRACTOR_PROMPT | structured_llm
+    response = chain.invoke({"analysis": final_output, "hypotheses": str(hypotheses), "questions": str(questions), "answers": str(answers), "history": history_text})
     
     # response is VerificationResult instance
     
