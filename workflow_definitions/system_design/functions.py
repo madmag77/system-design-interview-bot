@@ -2,6 +2,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
 from workflow_definitions.system_design.prompts import (
     GENERATE_HYPOTHESES_PROMPT,
     VERIFY_HYPOTHESES_PROMPT,
@@ -9,6 +10,14 @@ from workflow_definitions.system_design.prompts import (
     CRITIC_REVIEW_PROMPT
 )
 from pydantic import BaseModel, Field
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, BaseMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
+import operator
+from typing import TypedDict, Annotated, Union
+import sys
+from io import StringIO
 
 # Define Pydantic Models for Structured Output
 
@@ -62,7 +71,31 @@ def generate_hypotheses(
 def ask_user_verification(questions: List[str], config: dict, **kwargs) -> dict:
     # HITL node placeholder
     logger.info(f"AskUserVerification executing with {len(questions)} questions")
-    return {}
+    return {} 
+
+@tool
+def run_python(code: str) -> str:
+    """Run python code to calculate system design metrics.
+    
+    Useful for calculating QPS, storage requirements, bandwidth, etc.
+    The code should print the result to stdout.
+    """
+    try:
+        logger.info(f"Running python code: {code}")
+        # Create a local namespace for execution
+        local_scope = {}
+        old_stdout = sys.stdout
+        redirected_output = sys.stdout = StringIO()
+        
+        exec(code, {}, local_scope)
+        
+        sys.stdout = old_stdout
+        return redirected_output.getvalue().strip()
+    except Exception as e:
+        return f"Error executing code: {e}"
+
+class AgentState(TypedDict):
+    messages: Annotated[List[BaseMessage], operator.add]
 
 def verify_hypotheses(
     hypotheses: List[str], 
@@ -76,12 +109,91 @@ def verify_hypotheses(
     history_text = "\n\n".join([str(h) for h in hypotheses_history]) if hypotheses_history else "No previous history."
  
     llm = get_llm(config)
+    
+    # 1. Define the Agent Logic
+    
+    tools = [run_python]
+    llm_with_tools = llm.bind_tools(tools)
+    
+    def call_model(state: AgentState):
+        return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    
+    workflow = StateGraph(AgentState)
+    workflow.add_node("agent", call_model)
+    workflow.add_node("tools", ToolNode(tools))
+    
+    workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges("agent", tools_condition)
+    workflow.add_edge("tools", "agent")
+    
+    # Initialize the graph
+    app = workflow.compile()
+    
+    # Create the initial prompt for the agent
+    # We encourage tool use in the system message
+    system_msg = SystemMessage(content="""You are a Senior Software Engineer acting as a candidate on a System Design Interview.
+    
+    Your task is to scientifically verify if the hypotheses below are valid/viable risks based on the interviewer's answers.
+    
+    You have access to a python tool. You MUST use it to calculate metrics (like QPS, Storage, Bandwidth) if the answers contain numbers to back up your reasoning.
+    
+    Hypotheses to verify:
+    {hypotheses}
+    
+    Verification Questions asked:
+    {questions}
+    
+    Interviewer's Answers:
+    {answers}
+    
+    History:
+    {history}
+    
+    After you have performed necessary calculations and reasoning, output your final detailed analysis.
+    """)
+    
+    # Run the agent part
+    # We format the input slightly to ensure variables are strings
+    formatted_sys_msg = system_msg.content.format(
+        hypotheses=str(hypotheses),
+        questions=str(questions),
+        answers=str(answers),
+        history=history_text
+    )
+    
+    initial_state = {"messages": [SystemMessage(content=formatted_sys_msg), HumanMessage(content="Please verify the hypotheses now.")]}
+    
+    final_state = app.invoke(initial_state)
+    agent_messages = final_state["messages"]
+    final_output = agent_messages[-1].content
+    
+    logger.info(f"Agent analysis completed. Output length: {len(final_output)}")
+
+    # 2. Convert to Structured Output
+    # We take the agent's final free-form analysis and parse it into our strict schema
+    
     structured_llm = llm.with_structured_output(VerificationResult, method="json_schema")
-    # answers might be passed as a list or string depending on how UI sends it
-    chain = VERIFY_HYPOTHESES_PROMPT | structured_llm
+    
+    schema_prompt = ChatPromptTemplate.from_template("""You are a structured data extractor.
+    
+    Based on the following detailed analysis by a System Design Engineer, extract the verification results.
+    
+    Analysis:
+    {analysis}
+    
+    Hypotheses list that were analyzed:
+    {hypotheses}
+    
+    Extract:
+    1. Valid/Invalid status for each hypothesis with the REASON from the analysis.
+    2. The 'best_hypothesis' (most critical/interesting valid one).
+    3. A brief solution draft if mentioned.
+    """)
+    
+    chain = schema_prompt | structured_llm
+    response = chain.invoke({"analysis": final_output, "hypotheses": str(hypotheses)})
     
     # response is VerificationResult instance
-    response = chain.invoke({"hypotheses": hypotheses, "answers": answers, "history": history_text, "questions": questions})
     
     # Determine global validity and best hypothesis from detailed feedback
     feedback = response.hypotheses_feedback
@@ -226,28 +338,7 @@ def determine_next_state(
     should_stop = False
     next_question = ""
     
-    if not is_valid:
-        # If not valid, we use the reason as the next question base (or simple retry)
-        # The user/workflow might pass explanation in next_input if DetermineNextState logic in WIRL was complex.
-        # But here we stick to python logic if needed.
-        # WIRL: next_question = DetermineNextState.next_question
-        
-        # User said: "decide if is_valid is false then use verification reason as a next_question base"
-        # However, typically next_question is what we feed into GenerateHypotheses next.
-        # If we just put reason there, LLM might be confused. Ideally we append it to 'current_question' or 'history'.
-        # But let's follow instruction: "use verification reason as a next_question base".
-        
-        # If user provided 'retry_input' (via HITL, maybe empty if purely auto loop?), we prefer that?
-        # Actually in WIRL DetermineNextState inputs: verification_reason, next_input, next_action.
-        
-        # If is_valid is False, we probably want to try again.
-        # If user intervenes?? WIRL says: 
-        # when { (VerifyHypotheses.is_valid and AskUserNextSteps.next_action) or (not VerifyHypotheses.is_valid) }
-        
-        # Note: AskUserNextSteps runs ONLY when VerifyHypotheses.is_valid is True.
-        # So if is_valid is False, AskUserNextSteps didn't run. catch?
-        
-        # verification_reason is now an explicit argument
+    if not is_valid: # No valide hypotheses, need to retry
         next_question = f"Previous hypotheses were invalid. Reason: {verification_reason}. Please try again considering this."
         
     else:
