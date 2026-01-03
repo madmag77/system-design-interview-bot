@@ -83,3 +83,29 @@ Run the integration tests to verify the workflow logic:
 ```bash
 pytest tests/test_evaluation.py
 ```
+## 🏗️ Internal Design
+
+The bot is architected using a modular workflow definition and a Streamlit-based orchestrator.
+
+### 1. WIRL Workflow
+The core logic is defined in `workflow_definitions/system_design/workflow.wirl`. This file specifies the `SystemDesignInterview` workflow, including:
+*   **Cycles**: The `InterviewLoop` handles the iterative interaction (Hypothesis -> Verification -> Solution).
+*   **Typed Inputs/Outputs**: Data passed between nodes is typed for readability and convenience, ensuring clear interfaces.
+
+### 2. Logic & Agents
+The implementation of workflow nodes resides in `workflow_definitions/system_design/functions.py`.
+*   **Pure Functions**: Nodes are implemented as pure functions, making them easy to debug and test in isolation.
+*   **Agentic Verification**: The `verify_hypotheses` function utilizes a specialized LangGraph agent (`workflow_definitions/system_design/agent.py`).
+*   **Tools**: This agent is equipped with a **Python tool** (`calculate_metrics`) allowing it to execute real Python code for calculations (e.g., QPS, storage estimation) during verification.
+
+> [!WARNING]
+> Enabling arbitrary Python code execution by the agent can introduce security risks. Ensure you are running this in a sandboxed or trusted environment.
+
+### 3. Orchestration
+The main application `app/streamlit_app.py` acts as the orchestrator:
+*   **Graph Building**: It compiles the WIRL definition into an executable Pregel graph using `build_pregel_graph`.
+*   **State Loop**: It manages the user session, handles Human-in-the-Loop (HITL) interrupts for user input, and resumes execution.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
