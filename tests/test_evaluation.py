@@ -69,7 +69,8 @@ def test_evaluation_loop(mock_load_tasks, mock_build_graph, mock_interviewer_cls
     mock_snapshot = MagicMock()
     mock_snapshot.values = {
         "GenerateHypotheses": {"verification_questions": ["Q1"]},
-        "SaveResults": {"report": "Final Report Used For Scoring"}
+        "SaveResults": {"report": "Final Report Used For Scoring"},
+        "SaveResults.report": "Final Report Used For Scoring"
     }
     mock_app.get_state.return_value = mock_snapshot
 

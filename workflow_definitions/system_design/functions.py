@@ -75,7 +75,7 @@ def verify_hypotheses(
     hypotheses_history: Optional[List[dict]] = None, 
     config: dict = None
 ) -> dict:
-    logger.info(f"Verifying hypotheses: {hypotheses} with answers: {answers}")
+    logger.info(f"Verifying {len(hypotheses)} hypotheses with {len(answers)} answers")
     
     history_text = "\n\n".join([str(h) for h in hypotheses_history]) if hypotheses_history else "No previous history."
  
