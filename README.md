@@ -12,6 +12,36 @@ A dedicated agentic workflow for practicing System Design Interviews using LLMs.
   - Review & Critique
 - **Automated Evaluation Loop** for testing bot performance against diverse tasks.
 
+## 📖 UI Walkthrough & Usage
+
+This workflow simulates a system design interview where the **Bot acts as the Candidate** and **You act as the Interviewer**.
+
+1.  **Scenario Setup**
+    
+    You (Interviewer) start by providing a system design problem (e.g., "Design a URL Shortener").
+    
+    ![Initial Screen](images/initial_screen.png)
+
+2.  **Engineering Challenges (Hypotheses)**
+    
+    The Candidate generates 2-3 potential engineering challenges (hypotheses) for the problem. It then asks you clarifying questions to validate these hypotheses and decide which one to tackle.
+    
+    ![Verification Questions](images/verifying_questions.png)
+
+3.  **Verification & Refinement**
+    
+    You answer the questions to guide the Candidate. If the hypotheses are not what you intended, your answers help the Candidate refine its understanding and choose the correct direction.
+    
+    ![Invalid Hypotheses](images/not_valid_hypotheses.png)
+
+4.  **Solution & Deep Dive**
+    
+    The Candidate provides a solution for the chosen hypothesis. It then asks if you want to:
+    *   **Deep Dive**: Ask follow-up questions (e.g., "What if QPS increases 100x?"). The context (previous hypotheses) is retained, extending the current solution.
+    *   **Finish**: End the interview and generate the final report.
+
+    ![Final Report](images/report1.png)
+
 ## 🛠️ Setup
 
 1. **Install Dependencies**:

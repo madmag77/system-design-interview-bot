@@ -1,8 +1,8 @@
 streamlit>=1.41.0
 python-dotenv>=1.0.0
 pandas>=2.2.0
-wirl-lang>=0.1.0
-wirl-pregel-runner>=0.1.0
+wirl-lang>=0.1.1
+wirl-pregel-runner>=0.1.1
 langchain-ollama>=0.2.1
 langchain-openai>=0.2.14
 numpy>=1.24.0
