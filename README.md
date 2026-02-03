@@ -48,7 +48,7 @@ This workflow simulates a system design interview where the **Bot acts as the Ca
    ```bash
    pip install -r requirements.txt
    ```
-   *Note: Ensure you have `ollama` installed and running with the required models (e.g., `gpt-oss:20b` or `gemma3:27b`).*
+   *Note: Ensure you have `ollama` installed and running with the required models: `gpt-oss:20b` or `gemma3:27b`(except verification step, which requires tool call capability).*
 
 2. **Run the Interactive App**:
    Start the Streamlit interface to practice an interview yourself:
